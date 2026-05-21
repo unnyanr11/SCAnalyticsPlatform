@@ -1,22 +1,56 @@
-"""economy_phases table — phase observation history."""
+"""Economy phase records."""
 
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Optional
 
-from sqlalchemy import DateTime, Float, Integer, SmallInteger, String
+from sqlalchemy import BigInteger, DateTime, Float, Index, Integer, SmallInteger, String, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base, TimestampMixin
+from app.models.base import Base, RealmMixin
 
 
-class EconomyPhaseRecord(Base, TimestampMixin):
+class EconomyPhaseRecord(Base, RealmMixin):
+    """
+    Snapshot of the SimCompanies economy phase for a realm.
+
+    Phase codes (as used by SimCompanies API):
+        0 = Stable  |  1 = Boom  |  2 = Recession  |  3 = Recovery
+    """
+
     __tablename__ = "economy_phases"
+    __table_args__ = (
+        Index("ix_phase_realm_time", "realm", "observed_at"),
+        Index("ix_phase_code",       "phase_code"),
+    )
 
-    id:          Mapped[int]      = mapped_column(Integer,    primary_key=True, autoincrement=True)
-    realm:       Mapped[int]      = mapped_column(SmallInteger, nullable=False, default=0, index=True)
-    name:        Mapped[str]      = mapped_column(String(20), nullable=False)
-    code:        Mapped[int]      = mapped_column(SmallInteger, nullable=False)
-    multiplier:  Mapped[float]    = mapped_column(Float, nullable=False, default=1.0)
-    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    ends_at:     Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    id:   Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True,
+    )
+    ends_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+
+    # --- Phase identity ------------------------------------------------------
+    phase_code:   Mapped[int]   = mapped_column(SmallInteger, nullable=False)
+    phase_name:   Mapped[str]   = mapped_column(String(40),   nullable=False)
+    multiplier:   Mapped[float] = mapped_column(Float,        nullable=False, default=1.0,
+                                                 doc="Retail price multiplier for this phase")
+    duration_hrs: Mapped[Optional[int]] = mapped_column(Integer, nullable=True,
+                                                         doc="Planned phase duration in hours")
+
+    # --- Strategy hints (AI-generated, stored for cache) ---------------------
+    strategy_hints: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+
+    # --- Source --------------------------------------------------------------
+    source: Mapped[str] = mapped_column(String(40), nullable=False, default="simcotools")
+
+    def __repr__(self) -> str:
+        return (
+            f"<Phase realm={self.realm} code={self.phase_code} "
+            f"name={self.phase_name!r} at={self.observed_at}>"
+        )
