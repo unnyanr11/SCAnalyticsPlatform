@@ -1,60 +1,89 @@
-// SC Analytics Platform — Request Interceptor
-// Passively captures API responses already loaded by the game. No extra requests made.
+/**
+ * interceptor.js
+ * SC Analytics Platform — Feature 1: Live Market Intelligence Overlay
+ *
+ * COMPLIANCE: Strictly READ-ONLY passive listener.
+ * Observes API responses already loaded by the game.
+ * Never modifies requests, never triggers automated actions,
+ * never clicks, buys, sells, or produces anything.
+ */
 
 (function () {
   'use strict';
 
-  const WATCHED_PATTERNS = [
-    /\/api\/v[24]\/(0|1)\/market/,
-    /\/api\/v[24]\/(0|1)\/resources/,
-    /\/api\/v[24]\/pt\/(0|1)\/encyclopedia/,
-    /\/api\/v[24]\/(0|1)\/resources-retail-info/,
-    /simcotools\.app\/api/,
-    /api\.simcotools\.com/
+  // ─── Market endpoint patterns to observe ────────────────────────────────────
+  const MARKET_PATTERNS = [
+    /\/api\/v[0-9]+\/(0|1)\/market/,
+    /\/api\/v[0-9]+\/(0|1)\/resources/,
+    /\/api\/v[0-9]+\/pt\/(0|1)\/encyclopedia\/resources/,
+    /\/api\/v[0-9]+\/(0|1)\/resources-retail-info/,
+    /simcotools\.app\/api\/v[0-9]+\/resources/,
+    /api\.simcotools\.com\/v[0-9]+\/realms\/[0-9]+\/(phases|resources)/,
   ];
 
-  function shouldCapture(url) {
-    return WATCHED_PATTERNS.some(pat => pat.test(url));
+  function isMarketEndpoint(url) {
+    return MARKET_PATTERNS.some((p) => p.test(url));
   }
 
-  function dispatchData(url, data) {
-    window.dispatchEvent(new CustomEvent('SCA_API_DATA', { detail: { url, data, ts: Date.now() } }));
+  // ─── Dispatch normalized data to content pipeline ───────────────────────────
+  function dispatchMarketData(url, data) {
+    window.dispatchEvent(
+      new CustomEvent('SCA_MARKET_DATA', {
+        detail: { url, data, timestamp: Date.now() },
+      })
+    );
+    // Also forward to background service worker via messaging
+    try {
+      chrome.runtime.sendMessage({
+        type: 'MARKET_DATA',
+        url,
+        data,
+        ts: Date.now(),
+      }).catch(() => {});
+    } catch (_) {}
   }
 
-  // Intercept fetch
-  const origFetch = window.fetch.bind(window);
+  // ─── Intercept fetch ─────────────────────────────────────────────────────────
+  const _origFetch = window.fetch.bind(window);
   window.fetch = async function (...args) {
-    const url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url) || '';
-    const response = await origFetch(...args);
-    if (shouldCapture(url)) {
-      try { response.clone().json().then(data => dispatchData(url, data)).catch(() => {}); } catch (_) {}
+    const url =
+      typeof args[0] === 'string'
+        ? args[0]
+        : args[0]?.url || '';
+    const response = await _origFetch(...args);
+    if (isMarketEndpoint(url)) {
+      try {
+        response
+          .clone()
+          .json()
+          .then((data) => dispatchMarketData(url, data))
+          .catch(() => {});
+      } catch (_) {}
     }
     return response;
   };
 
-  // Intercept XHR
-  const OrigXHR = window.XMLHttpRequest;
-  function PatchedXHR() {
-    const xhr = new OrigXHR();
-    const origOpen = xhr.open.bind(xhr);
-    let captureUrl = null;
-    xhr.open = function (method, url, ...rest) {
-      if (shouldCapture(url)) captureUrl = url;
-      return origOpen(method, url, ...rest);
-    };
-    xhr.addEventListener('load', function () {
-      if (captureUrl) {
-        try { const data = JSON.parse(this.responseText); dispatchData(captureUrl, data); } catch (_) {}
-      }
-    });
-    return xhr;
-  }
-  PatchedXHR.prototype = OrigXHR.prototype;
-  window.XMLHttpRequest = PatchedXHR;
+  // ─── Intercept XMLHttpRequest ────────────────────────────────────────────────
+  const _XHROpen = XMLHttpRequest.prototype.open;
+  const _XHRSend = XMLHttpRequest.prototype.send;
 
-  window.addEventListener('SCA_API_DATA', (e) => {
-    chrome.runtime.sendMessage({ type: 'MARKET_DATA', url: e.detail.url, data: e.detail.data, ts: e.detail.ts }).catch(() => {});
-  });
+  XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+    this._sca_url = url;
+    return _XHROpen.apply(this, [method, url, ...rest]);
+  };
 
-  console.log('[SCA] Interceptor active');
+  XMLHttpRequest.prototype.send = function (...args) {
+    const url = this._sca_url || '';
+    if (isMarketEndpoint(url)) {
+      this.addEventListener('load', () => {
+        try {
+          const data = JSON.parse(this.responseText);
+          dispatchMarketData(url, data);
+        } catch (_) {}
+      });
+    }
+    return _XHRSend.apply(this, args);
+  };
+
+  console.debug('[SCA] Interceptor active — read-only market analytics listener.');
 })();
