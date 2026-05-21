@@ -1,0 +1,59 @@
+# ─── Node / Extension ────────────────────────────────────────────
+node_modules/
+dist/
+build/
+.cache/
+*.tsbuildinfo
+.vite/
+coverage/
+
+# ─── Python / Backend ────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+venv/
+.venv/
+env/
+.env
+*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# ─── Environment & Secrets ───────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets/
+
+# ─── OS ──────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── IDE ─────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.swp
+*.swo
+
+# ─── Extension build ─────────────────────────────────────────────
+extension/dist/
+extension/build/
+extension/.vite/
+
+# ─── Alembic ─────────────────────────────────────────────────────
+backend/alembic.ini
+
+# ─── Misc ────────────────────────────────────────────────────────
+*.zip
+*.tar.gz
