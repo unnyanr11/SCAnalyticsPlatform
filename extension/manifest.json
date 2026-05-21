@@ -2,20 +2,23 @@
   "manifest_version": 3,
   "name": "SC Analytics Platform",
   "version": "0.1.0",
-  "description": "AI-powered market intelligence for Sim Companies. Analytics and decision support only — no automation.",
+  "description": "AI-powered market intelligence analytics for Sim Companies. Read-only analytics, no automation.",
 
-  "permissions": [
-    "storage",
-    "alarms",
-    "notifications",
-    "scripting"
-  ],
+  "icons": {
+    "16":  "assets/icons/icon-16.png",
+    "48":  "assets/icons/icon-48.png",
+    "128": "assets/icons/icon-128.png"
+  },
 
-  "host_permissions": [
-    "https://www.simcompanies.com/*",
-    "https://simcotools.app/*",
-    "https://api.simcotools.com/*"
-  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16":  "assets/icons/icon-16.png",
+      "48":  "assets/icons/icon-48.png",
+      "128": "assets/icons/icon-128.png"
+    },
+    "default_title": "SC Analytics"
+  },
 
   "background": {
     "service_worker": "dist/background/service-worker.js",
@@ -25,39 +28,33 @@
   "content_scripts": [
     {
       "matches": ["https://www.simcompanies.com/*"],
-      "js": ["dist/content/content.js"],
-      "css": ["dist/content/overlay.css"],
-      "run_at": "document_idle",
-      "all_frames": false
+      "js":      ["dist/content/index.js"],
+      "run_at":  "document_idle"
     }
   ],
 
-  "action": {
-    "default_popup": "dist/popup/index.html",
-    "default_title": "SC Analytics",
-    "default_icon": {
-      "16": "assets/icons/icon-16.png",
-      "32": "assets/icons/icon-32.png",
-      "48": "assets/icons/icon-48.png",
-      "128": "assets/icons/icon-128.png"
-    }
-  },
+  "permissions": [
+    "storage",
+    "alarms",
+    "notifications",
+    "activeTab"
+  ],
 
-  "icons": {
-    "16": "assets/icons/icon-16.png",
-    "32": "assets/icons/icon-32.png",
-    "48": "assets/icons/icon-48.png",
-    "128": "assets/icons/icon-128.png"
-  },
-
-  "web_accessible_resources": [
-    {
-      "resources": ["dist/overlay/*.js", "dist/overlay/*.css", "assets/*"],
-      "matches": ["https://www.simcompanies.com/*"]
-    }
+  "host_permissions": [
+    "https://www.simcompanies.com/*",
+    "https://simcotools.app/*",
+    "https://api.simcotools.com/*",
+    "http://localhost:8000/*"
   ],
 
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
-  }
+  },
+
+  "web_accessible_resources": [
+    {
+      "resources": ["assets/*"],
+      "matches":   ["https://www.simcompanies.com/*"]
+    }
+  ]
 }
