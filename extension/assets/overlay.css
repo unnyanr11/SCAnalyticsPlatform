@@ -1,0 +1,160 @@
+/**
+ * overlay.css
+ * SC Analytics Platform — Feature 1: Live Market Intelligence Overlay
+ *
+ * Premium dark-terminal styling for analytics badges injected into SimCompanies.
+ * Glassmorphism aesthetic, lightweight, non-intrusive.
+ */
+
+/* ─── Badge ────────────────────────────────────────────────────────── */
+
+.sca-overlay-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  white-space: nowrap;
+  cursor: default;
+  pointer-events: auto;
+  vertical-align: middle;
+  margin-left: 8px;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+  position: relative;
+  transition: opacity 180ms ease, transform 180ms ease;
+  z-index: 99999;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.sca-overlay-badge:hover {
+  opacity: 0.85;
+  transform: translateY(-1px);
+  z-index: 100000;
+}
+
+.sca-badge-icon {
+  font-size: 12px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.sca-badge-text {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.sca-badge-meta {
+  font-size: 10px;
+  opacity: 0.7;
+  font-weight: 400;
+  letter-spacing: 0;
+  padding-left: 2px;
+  border-left: 1px solid currentColor;
+  margin-left: 2px;
+  opacity: 0.6;
+}
+
+/* ─── Badge type variants ───────────────────────────────────────────── */
+
+.sca-badge-bullish {
+  background: rgba(34, 197, 94, 0.12);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.sca-badge-bearish {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.sca-badge-warning {
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.sca-badge-danger {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.sca-badge-volatile {
+  background: rgba(168, 85, 247, 0.12);
+  color: #a855f7;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+.sca-badge-neutral {
+  background: rgba(100, 116, 139, 0.1);
+  color: #94a3b8;
+  border: 1px solid rgba(100, 116, 139, 0.25);
+}
+
+/* ─── Tooltip (shown on badge hover via title attr, enhanced) ──────────── */
+
+.sca-tooltip {
+  position: fixed;
+  background: rgba(10, 12, 16, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: #e2e8f0;
+  z-index: 1000000;
+  pointer-events: none;
+  max-width: 280px;
+  line-height: 1.7;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  white-space: pre-line;
+}
+
+.sca-tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 2px 0;
+}
+
+.sca-tooltip-label {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.sca-tooltip-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Pulse animation for shortage/urgent badges ─────────────────────── */
+
+@keyframes sca-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
+  50%       { box-shadow: 0 0 0 5px rgba(245, 158, 11, 0); }
+}
+
+.sca-badge-warning.sca-badge-urgent,
+.sca-badge-danger.sca-badge-urgent {
+  animation: sca-pulse 2s ease-in-out infinite;
+}
+
+/* ─── Reduced motion ───────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .sca-overlay-badge,
+  .sca-badge-warning.sca-badge-urgent,
+  .sca-badge-danger.sca-badge-urgent {
+    animation: none;
+    transition: none;
+  }
+}
