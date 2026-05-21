@@ -1,98 +1,62 @@
 /**
- * SC Analytics Platform — Content Script Entry
+ * SC Analytics Platform — Content Script Entry Point
  *
- * Runs in the context of https://www.simcompanies.com/*
- * Responsibilities:
- *   1. Install the API interceptor and WebSocket monitor
- *   2. Forward intercepted data to the background service worker
- *   3. Listen for overlay update messages from background
- *   4. Mount/unmount the overlay injector based on page navigation
+ * Bootstraps the entire interception system when the content script
+ * is injected into a simcompanies.com page.
  *
- * ⚠️ Analytics only — no automated actions.
+ * Boot order:
+ *   1. Validate we are on a supported domain
+ *   2. Install ApiInterceptor (fetch + XHR patches)
+ *   3. Install WebSocketMonitor
+ *   4. Install BackgroundRelay (event → service worker bridge)
+ *   5. Schedule periodic cache eviction
+ *   6. Register page-unload cleanup
+ *
+ * ⚠️ This file ONLY wires analytics infrastructure.
+ *    It NEVER automates, clicks, submits, or modifies game UI.
  */
 
-import { apiInterceptor } from '../services/ApiInterceptor';
-import { wsMonitor }      from '../websocket/WebSocketMonitor';
-import { overlayInjector } from '../overlays/OverlayInjector';
-import { MessageType }    from '../types/messages';
-import type { MarketIngestPayload, OverlayUpdatePayload } from '../types/messages';
-import { log }            from '../utils/logger';
+import { apiInterceptor }   from '../services/ApiInterceptor';
+import { wsMonitor }        from '../services/WebSocketMonitor';
+import { backgroundRelay }  from '../services/BackgroundRelay';
+import { interceptionCache } from '../services/InterceptionCache';
+import { log }              from '../utils/logger';
 
-// ---------------------------------------------------------------------------
-// Bootstrap
-// ---------------------------------------------------------------------------
+const SUPPORTED_ORIGIN = 'https://www.simcompanies.com';
+const EVICTION_INTERVAL_MS = 5 * 60_000; // evict expired cache entries every 5 min
 
-function bootstrap(): void {
-  log.info('[Content] Bootstrapping SC Analytics on', window.location.href);
+function boot(): void {
+  // Guard: only run on the game domain
+  if (!window.location.origin.startsWith(SUPPORTED_ORIGIN.replace('www.', ''))) {
+    log.warn('[Content] Not on simcompanies.com — aborting boot');
+    return;
+  }
 
-  // Install interceptors
+  log.info('[Content] Booting SCA interception system on', window.location.href);
+
+  // Install interception stack
   apiInterceptor.install();
   wsMonitor.install();
+  backgroundRelay.install();
 
-  // Forward intercepted market data to background
-  apiInterceptor.onResponse((url, data, timestamp) => {
-    const payload: MarketIngestPayload = { url, data, timestamp };
-    chrome.runtime.sendMessage({ type: MessageType.MARKET_DATA_INTERCEPTED, payload });
-  });
+  // Periodic expired-entry eviction
+  const evictionTimer = setInterval(() => {
+    void interceptionCache.evictExpired();
+  }, EVICTION_INTERVAL_MS);
 
-  // Forward WS frames
-  wsMonitor.onFrame((event, data, receivedAt) => {
-    chrome.runtime.sendMessage({
-      type: MessageType.WS_FRAME_RECEIVED,
-      payload: { event, data, receivedAt },
-    });
-  });
-
-  // Listen for overlay update instructions from background
-  chrome.runtime.onMessage.addListener((message) => {
-    if (message.type === MessageType.OVERLAY_UPDATE) {
-      const payload = message.payload as OverlayUpdatePayload;
-      overlayInjector.updateSignal(payload);
-    }
-  });
-
-  // Mount overlays on initial load
-  overlayInjector.mount();
-
-  // Re-mount on SPA navigation (Sim Companies is a SPA)
-  observeNavigation(() => {
-    overlayInjector.unmount();
-    setTimeout(() => overlayInjector.mount(), 600);
-  });
-
-  log.info('[Content] Bootstrap complete');
+  // Cleanup on page unload
+  window.addEventListener('beforeunload', () => {
+    clearInterval(evictionTimer);
+    backgroundRelay.uninstall();
+    wsMonitor.uninstall();
+    apiInterceptor.uninstall();
+    log.info('[Content] Interception system torn down on page unload');
+  }, { once: true });
 }
 
-// ---------------------------------------------------------------------------
-// SPA Navigation Observer
-// ---------------------------------------------------------------------------
-
-function observeNavigation(onNavigate: () => void): void {
-  let lastPath = window.location.pathname;
-
-  const observer = new MutationObserver(() => {
-    const currentPath = window.location.pathname;
-    if (currentPath !== lastPath) {
-      lastPath = currentPath;
-      log.debug('[Content] SPA navigation detected:', currentPath);
-      onNavigate();
-    }
-  });
-
-  observer.observe(document.body, { childList: true, subtree: true });
-
-  // Also handle popstate
-  window.addEventListener('popstate', () => {
-    if (window.location.pathname !== lastPath) {
-      lastPath = window.location.pathname;
-      onNavigate();
-    }
-  });
-}
-
-// Run once DOM is ready
+// Run after DOM is ready
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', bootstrap);
+  document.addEventListener('DOMContentLoaded', boot, { once: true });
 } else {
-  bootstrap();
+  boot();
 }
