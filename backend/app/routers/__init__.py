@@ -1,1 +1,1 @@
-# SC Analytics Platform — API Routers Package
+from .historical_market import router as historical_market_router
