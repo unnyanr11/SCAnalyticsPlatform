@@ -1,1 +1,1 @@
-"""Business logic and external data service layer."""
+"""API service layer — SimCompanies + SimcoTools adapters."""
