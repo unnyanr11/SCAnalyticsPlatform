@@ -1,111 +1,165 @@
 /**
- * contentBridge.ts
+ * contentBridge.ts — Entry point called by content.ts.
  *
- * Bridges the existing content.ts fetch interceptor with the
- * OverlayManager.
+ * Responsibilities:
+ *  1. Detect the current page type from the URL / DOM.
+ *  2. Launch the appropriate page injector(s).
+ *  3. Listen for MARKET_DATA_INTERCEPTED messages from the fetch interceptor
+ *     and update overlayStore with derived metrics.
+ *  4. Teardown injectors on SPA navigation.
  *
- * Flow:
- *   Fetch intercepted by content.ts
- *     → MARKET_DATA_INTERCEPTED message sent to background
- *     → Background normalises → builds OverlayMetrics via scoreEngine
- *     → Sends SCA_OVERLAY_UPDATE back to content script tab
- *     → overlayManager.updateMetrics() called
- *     → React re-renders badge/panel with fresh data
- *
- * This file also handles direct same-context metric updates for when
- * the background pipeline is bypassed during development / testing.
+ * STRICTLY ANALYTICS ONLY. Zero automated game actions.
  */
 
-import { OverlayManager } from './overlayManager';
-import { buildOverlayMetrics } from './scoreEngine';
-import type { OverlayMetrics } from './types';
+import { overlayStore } from './overlayStore';
+import { deriveMetrics } from './overlayUtils';
+import type { PageContext, PageType } from './overlayTypes';
 
-let manager: OverlayManager | null = null;
+// Lazy-loaded injectors (only the relevant one is ever imported)
+let cleanupFns: Array<() => void> = [];
 
-export function initOverlaySystem(): void {
-  if (manager) return; // Already initialised (hot-reload guard)
+// ─── Page type detection ──────────────────────────────────────────────
 
-  manager = new OverlayManager();
-  manager.start();
+function detectPageType(pathname: string): PageContext {
+  const ctx: PageContext = { type: 'unknown', pathname };
 
-  // Optional: patch fetch directly in content context to score inline
-  // (supplements background pipeline; useful when SW is not yet running)
-  patchFetchForInlineScoring();
+  // Market pages: /market, /market/*, /exchange, /exchange/*
+  if (/\/(market|exchange)(\?|\/|$)/.test(pathname)) {
+    ctx.type = 'market';
+    return ctx;
+  }
+
+  // Production pages: /production, /factory, /factories, /buildings
+  if (/\/(production|factory|factories|buildings)(\?|\/|$)/.test(pathname)) {
+    ctx.type = 'production';
+    return ctx;
+  }
+
+  // Product detail pages: /encyclopedia/*, /resources/*, /market/<id>
+  if (/\/(encyclopedia|resources|market)\/\d+/.test(pathname)) {
+    ctx.type = 'product';
+    const m = pathname.match(/\/(\d+)(?:\?|$)/);
+    if (m) ctx.productId = parseInt(m[1], 10);
+    return ctx;
+  }
+
+  // Anything with a numeric segment may be a product detail
+  const numMatch = pathname.match(/\/(\d+)(?:\?|$|\/|#)/);
+  if (numMatch) {
+    ctx.type = 'product';
+    ctx.productId = parseInt(numMatch[1], 10);
+  }
+
+  return ctx;
 }
 
-export function destroyOverlaySystem(): void {
-  manager?.stop();
-  manager = null;
+// ─── Injector launch ───────────────────────────────────────────────
+
+async function launchInjectors(type: PageType) {
+  teardownInjectors();
+
+  if (type === 'market') {
+    const { initMarketPageInjector } = await import('./injectors/marketPageInjector');
+    cleanupFns.push(initMarketPageInjector());
+  }
+
+  if (type === 'product') {
+    const { initProductPageInjector } = await import('./injectors/productPageInjector');
+    cleanupFns.push(initProductPageInjector());
+  }
+
+  if (type === 'production') {
+    const { initProductionPageInjector } = await import('./injectors/productionPageInjector');
+    cleanupFns.push(initProductionPageInjector());
+    // Also launch market injector for any market rows on the same page
+    const { initMarketPageInjector } = await import('./injectors/marketPageInjector');
+    cleanupFns.push(initMarketPageInjector());
+  }
 }
 
-// Called by background → content message (SCA_OVERLAY_UPDATE) —
-// the overlayManager's own listener handles this automatically.
-// This export is available for direct calls from tests / devtools.
-export function pushMetrics(metrics: OverlayMetrics): void {
-  manager?.updateMetrics(metrics);
+function teardownInjectors() {
+  cleanupFns.forEach((fn) => fn());
+  cleanupFns = [];
 }
 
-// ── Inline fetch scoring ──────────────────────────────────────────────
+// ─── Message listener (from fetch interceptor) ────────────────────────
 
-function patchFetchForInlineScoring(): void {
-  const original = window.fetch.bind(window);
+type InterceptMessage = {
+  type: 'MARKET_DATA_INTERCEPTED';
+  url: string;
+  data: unknown;
+  timestamp: number;
+};
 
-  window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const response = await original(input, init);
-    const url = typeof input === 'string' ? input
-      : input instanceof URL ? input.href
-      : (input as Request).url;
+function handleInterceptedData(msg: InterceptMessage) {
+  const { url, data } = msg;
 
-    if (isMarketEndpoint(url)) {
-      response.clone().json().then((data: unknown) => {
-        scoreAndPush(data, url);
-      }).catch(() => { /* non-JSON, skip */ });
+  // Single product endpoint: /api/v2/market/{id} or /api/v4/.../resources/{id}
+  const singleMatch = url.match(/\/(\d+)(?:\?|$)/);
+  if (singleMatch && data && typeof data === 'object') {
+    const productId = parseInt(singleMatch[1], 10);
+    if (productId > 0 && productId < 99999) {
+      const payload = data as Record<string, unknown>;
+      const name = String(
+        payload.name ?? payload.resourceName ?? payload.label ?? 'Product',
+      );
+      overlayStore.set(deriveMetrics(productId, name, payload));
     }
+    return;
+  }
 
-    return response;
-  };
+  // Array endpoint: SimcoTools /api/v3/resources or similar
+  if (Array.isArray(data)) {
+    (data as Record<string, unknown>[]).forEach((item) => {
+      const id = parseInt(String(item.id ?? item.resourceId ?? item.itemId ?? '0'), 10);
+      if (id > 0 && id < 99999) {
+        const name = String(item.name ?? item.label ?? 'Product');
+        overlayStore.set(deriveMetrics(id, name, item));
+      }
+    });
+  }
 }
 
-function isMarketEndpoint(url: string): boolean {
-  return (
-    url.includes('simcompanies.com/api') ||
-    url.includes('simcotools.app/api') ||
-    url.includes('api.simcotools.com')
+// ─── SPA navigation detection ───────────────────────────────────────
+
+function patchHistory() {
+  const wrap = (orig: History['pushState']) =>
+    function (this: History, ...args: Parameters<History['pushState']>) {
+      orig.apply(this, args);
+      window.dispatchEvent(new Event('sca:navigate'));
+    };
+
+  history.pushState    = wrap(history.pushState);
+  history.replaceState = wrap(history.replaceState);
+  window.addEventListener('popstate', () =>
+    window.dispatchEvent(new Event('sca:navigate')),
   );
 }
 
-function scoreAndPush(data: unknown, url: string): void {
-  if (!data || typeof data !== 'object') return;
-  if (!manager) return;
+// ─── Public init ───────────────────────────────────────────────────
 
-  const items: unknown[] = Array.isArray(data) ? data : [data];
+export function initOverlaySystem(): void {
+  // 1. Patch history for SPA nav detection
+  patchHistory();
 
-  for (const item of items) {
-    if (!item || typeof item !== 'object') continue;
-    const raw = item as Record<string, unknown>;
+  // 2. Listen for intercepted market data messages
+  chrome.runtime.onMessage.addListener((msg: unknown) => {
+    if (
+      msg &&
+      typeof msg === 'object' &&
+      (msg as { type?: string }).type === 'MARKET_DATA_INTERCEPTED'
+    ) {
+      handleInterceptedData(msg as InterceptMessage);
+    }
+  });
 
-    const productId = Number(
-      raw['product_id'] ?? raw['resourceId'] ?? raw['itemId'] ?? raw['id'] ?? 0,
-    );
-    if (!productId) continue;
+  // 3. Launch injectors for the current page
+  const { type } = detectPageType(location.pathname);
+  void launchInjectors(type);
 
-    // Remap snake_case API keys to camelCase for scoreEngine
-    const mapped = {
-      productId,
-      name:            String(raw['name'] ?? raw['resource_name'] ?? `Product #${productId}`),
-      vwap:            Number(raw['vwap'] ?? raw['price'] ?? raw['lowest_ask'] ?? 0),
-      lowestAsk:       Number(raw['lowest_ask'] ?? 0),
-      highestAsk:      Number(raw['highest_ask'] ?? 0),
-      totalSupply:     Number(raw['total_supply'] ?? raw['quantity'] ?? 0),
-      demandScore:     Number(raw['demand_score'] ?? raw['demand'] ?? 0.5),
-      priceVolatility: Number(raw['price_volatility'] ?? raw['volatility'] ?? 0.1),
-      momentum24h:     Number(raw['momentum_24h'] ?? raw['momentum24h'] ?? 0),
-      price24hAgo:     Number(raw['price_24h_ago'] ?? 0),
-      shortageRisk:    Number(raw['shortage_risk'] ?? 0),
-      aiConfidence:    Number(raw['ai_confidence'] ?? raw['confidence'] ?? 0.5),
-    };
-
-    const metrics = buildOverlayMetrics(mapped, mapped.name);
-    manager.updateMetrics(metrics);
-  }
+  // 4. Re-launch on SPA navigation
+  window.addEventListener('sca:navigate', () => {
+    const next = detectPageType(location.pathname);
+    void launchInjectors(next.type);
+  });
 }
