@@ -12,32 +12,29 @@ from app.schemas.historical_market import (
     MarketIngestionRequest,
     MarketIngestionResponse,
 )
-from app.services.cache import CacheService
 from app.services.historical_market_engine import HistoricalMarketDataEngine
 
 router = APIRouter(prefix="/historical-market", tags=["historical-market"])
 
-
-def get_historical_engine() -> HistoricalMarketDataEngine:
-    return HistoricalMarketDataEngine(cache_service=CacheService())
+_engine = HistoricalMarketDataEngine()
 
 
 @router.post("/ingest", response_model=MarketIngestionResponse)
 async def ingest_market_data(
-    payload: MarketIngestionRequest,
+    body: MarketIngestionRequest,
     session: AsyncSession = Depends(get_db),
 ) -> MarketIngestionResponse:
-    engine = get_historical_engine()
-    result = await engine.ingest_market_batch(
+    """Ingest a batch of raw market payloads from the extension or workers."""
+    result = await _engine.ingest_market_batch(
         session,
-        realm=payload.realm,
+        realm=body.realm,
         payloads=[
             {
                 "product_id": item.product_id,
                 "observed_at": item.observed_at,
-                "lowest_ask": item.lowest_ask,
+                "lowest_ask":  item.lowest_ask,
                 "highest_ask": item.highest_ask,
-                "vwap": item.vwap,
+                "vwap":        item.vwap,
                 "total_supply": item.total_supply,
                 "offer_count": item.offer_count,
                 "demand_score": item.demand_score,
@@ -45,23 +42,23 @@ async def ingest_market_data(
                 "momentum_24h": item.momentum_24h,
                 **item.meta,
             }
-            for item in payload.payloads
+            for item in body.payloads
         ],
-        source=payload.source,
+        source=body.source,
     )
     return MarketIngestionResponse(**result)
 
 
 @router.post("/cleanup", response_model=CleanupResponse)
-async def cleanup_historical_market_data(
-    payload: CleanupRequest,
+async def cleanup_historical_data(
+    body: CleanupRequest,
     session: AsyncSession = Depends(get_db),
 ) -> CleanupResponse:
-    engine = get_historical_engine()
-    result = await engine.cleanup_old_data(
+    """Purge aged rows from market_prices, volatility_metrics, historical_market_events."""
+    result = await _engine.cleanup_old_data(
         session,
-        price_retention_days=payload.price_retention_days,
-        metric_retention_days=payload.metric_retention_days,
-        event_retention_days=payload.event_retention_days,
+        price_retention_days=body.price_retention_days,
+        metric_retention_days=body.metric_retention_days,
+        event_retention_days=body.event_retention_days,
     )
     return CleanupResponse(**result)

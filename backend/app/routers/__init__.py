@@ -1,1 +1,1 @@
-from .historical_market import router as historical_market_router
+"""Router package — import individual routers directly, not via __init__."""
