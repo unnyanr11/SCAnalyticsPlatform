@@ -3,23 +3,54 @@
   "name": "SC Analytics Platform",
   "version": "1.0.0",
   "description": "AI-powered market intelligence for Sim Companies. Analytics, forecasting, and decision support only. Never automates gameplay.",
-  "permissions": ["storage","notifications","alarms","activeTab","scripting"],
+  "permissions": [
+    "storage",
+    "notifications",
+    "alarms",
+    "activeTab",
+    "scripting",
+    "webRequest"
+  ],
   "host_permissions": [
     "https://www.simcompanies.com/*",
     "https://api.simcotools.com/*",
     "https://simcotools.app/*"
   ],
-  "background": { "service_worker": "background/service-worker.js", "type": "module" },
-  "content_scripts": [{
-    "matches": ["https://www.simcompanies.com/*"],
-    "js": ["content/interceptor.js", "content/overlay-injector.js", "websocket/ws-monitor.js"],
-    "css": ["assets/overlay.css"],
-    "run_at": "document_idle"
-  }],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.simcompanies.com/*"],
+      "js": [
+        "content/interceptor.js",
+        "content/normalizer.js",
+        "content/scorer.js",
+        "content/overlay-injector.js",
+        "websocket/ws-monitor.js"
+      ],
+      "css": ["assets/overlay.css"],
+      "run_at": "document_idle"
+    }
+  ],
   "action": {
     "default_popup": "popup/popup.html",
-    "default_icon": {"16":"assets/icons/icon16.png","48":"assets/icons/icon48.png","128":"assets/icons/icon128.png"}
+    "default_icon": {
+      "16": "assets/icons/icon16.png",
+      "48": "assets/icons/icon48.png",
+      "128": "assets/icons/icon128.png"
+    }
   },
-  "icons": {"16":"assets/icons/icon16.png","48":"assets/icons/icon48.png","128":"assets/icons/icon128.png"},
-  "web_accessible_resources": [{"resources":["popup/*","overlays/*","assets/*"],"matches":["https://www.simcompanies.com/*"]}]
+  "icons": {
+    "16": "assets/icons/icon16.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["popup/*", "overlays/*", "assets/*"],
+      "matches": ["https://www.simcompanies.com/*"]
+    }
+  ]
 }
