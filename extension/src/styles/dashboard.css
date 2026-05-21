@@ -1,0 +1,31 @@
+/* Market Intelligence Dashboard — design tokens + flash animation */
+
+:root {
+  --sc-bg:             #0d0f1a;
+  --sc-surface:        #131625;
+  --sc-surface-offset: #1a1d2e;
+  --sc-border:         #2d3250;
+  --sc-text:           #e2e8f0;
+  --sc-text-muted:     #94a3b8;
+  --sc-text-faint:     #475569;
+  --sc-accent:         #6366f1;
+  --sc-green:          #10b981;
+}
+
+/* Flash animation on realtime price update */
+@keyframes flash-green {
+  0%   { background-color: rgba(16, 185, 129, 0.18); }
+  100% { background-color: transparent; }
+}
+@keyframes flash-red {
+  0%   { background-color: rgba(248, 113, 113, 0.18); }
+  100% { background-color: transparent; }
+}
+.flash-green { animation: flash-green 0.7s ease-out; }
+.flash-red   { animation: flash-red   0.7s ease-out; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--sc-surface); }
+::-webkit-scrollbar-thumb { background: var(--sc-border); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: #3d4470; }
