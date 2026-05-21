@@ -2,71 +2,60 @@ import type { Config } from 'tailwindcss';
 
 const config: Config = {
   content: [
-    './popup/**/*.{ts,tsx,html}',
-    './overlays/**/*.{ts,tsx}',
-    './src/**/*.{ts,tsx}',
+    './src/**/*.{ts,tsx,html}',
+    './src/popup/index.html',
   ],
   darkMode: 'class',
   theme: {
     extend: {
       colors: {
-        // Surface system
-        surface: {
-          DEFAULT: '#1c1b19',
-          2: '#201f1d',
-          offset: '#1d1c1a',
-          dynamic: '#2d2c2a',
+        // SC Analytics dark terminal palette
+        sc: {
+          dark:    '#0d1117',
+          darker:  '#090d12',
+          surface: '#161b22',
+          surface2:'#1c2128',
+          border:  '#30363d',
+          border2: '#21262d',
+          text:    '#e6edf3',
+          muted:   '#8b949e',
+          faint:   '#484f58',
+          accent:  '#58a6ff',
+          green:   '#3fb950',
+          red:     '#f85149',
+          yellow:  '#d29922',
+          orange:  '#e3b341',
+          purple:  '#bc8cff',
+          teal:    '#39d353',
         },
-        border: '#393836',
-        divider: '#262523',
-        // Text
-        text: {
-          DEFAULT: '#cdccca',
-          muted: '#797876',
-          faint: '#5a5957',
-        },
-        // Accent (teal)
-        primary: {
-          DEFAULT: '#4f98a3',
-          hover: '#227f8b',
-          active: '#1a626b',
-          highlight: '#313b3b',
-        },
-        // Signal colors for market badges
-        bullish: '#22c55e',
-        bearish: '#ef4444',
-        warning: '#f59e0b',
-        volatile: '#a855f7',
-        neutral: '#64748b',
       },
       fontFamily: {
-        mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans:  ['Inter', 'system-ui', 'sans-serif'],
+        mono:  ['JetBrains Mono', 'Fira Code', 'monospace'],
       },
       fontSize: {
         '2xs': ['0.625rem', { lineHeight: '1rem' }],
       },
-      backdropBlur: {
-        xs: '2px',
+      borderRadius: {
+        sm: '0.25rem',
+        md: '0.375rem',
+        lg: '0.5rem',
+        xl: '0.75rem',
+      },
+      boxShadow: {
+        'glow-accent': '0 0 12px rgba(88,166,255,0.25)',
+        'glow-green':  '0 0 12px rgba(63,185,80,0.25)',
+        'glow-red':    '0 0 12px rgba(248,81,73,0.25)',
+        'panel':       '0 8px 32px rgba(0,0,0,0.5)',
       },
       animation: {
-        'fade-in': 'fadeIn 150ms ease-out',
-        'slide-up': 'slideUp 200ms cubic-bezier(0.16, 1, 0.3, 1)',
-        shimmer: 'shimmer 1.5s ease-in-out infinite',
+        'pulse-slow': 'pulse 3s cubic-bezier(0.4,0,0.6,1) infinite',
+        'fade-in':    'fadeIn 200ms ease-out',
+        'slide-up':   'slideUp 250ms cubic-bezier(0.16,1,0.3,1)',
       },
       keyframes: {
-        fadeIn: {
-          from: { opacity: '0' },
-          to: { opacity: '1' },
-        },
-        slideUp: {
-          from: { opacity: '0', transform: 'translateY(8px)' },
-          to: { opacity: '1', transform: 'translateY(0)' },
-        },
-        shimmer: {
-          '0%': { backgroundPosition: '-200% 0' },
-          '100%': { backgroundPosition: '200% 0' },
-        },
+        fadeIn:  { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+        slideUp: { '0%': { opacity: '0', transform: 'translateY(8px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
       },
     },
   },

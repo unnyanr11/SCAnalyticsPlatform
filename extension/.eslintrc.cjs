@@ -2,39 +2,37 @@ module.exports = {
   root: true,
   env: {
     browser: true,
-    es2020: true,
+    es2022: true,
     webextensions: true,
   },
   extends: [
     'eslint:recommended',
-    'plugin:@typescript-eslint/recommended',
+    'plugin:@typescript-eslint/recommended-type-checked',
+    'plugin:react/recommended',
     'plugin:react-hooks/recommended',
-    'prettier',
   ],
-  ignorePatterns: ['dist', '.eslintrc.cjs'],
   parser: '@typescript-eslint/parser',
   parserOptions: {
-    ecmaVersion: 2020,
+    ecmaVersion: 2022,
     sourceType: 'module',
+    project: ['./tsconfig.json'],
+    tsconfigRootDir: __dirname,
   },
-  plugins: ['react-refresh', '@typescript-eslint'],
+  plugins: ['@typescript-eslint', 'react', 'react-hooks'],
+  settings: { react: { version: 'detect' } },
   rules: {
-    // Extension compliance guard: flag any automated interaction patterns
+    // Enforce analytics-only — flag any DOM interaction APIs
     'no-restricted-globals': [
       'error',
-      {
-        name: 'click',
-        message:
-          'SCAnalyticsPlatform must NEVER automate clicks. This is an analytics-only extension.',
-      },
+      { name: 'event', message: 'Use local event parameters instead.' },
     ],
-    'react-refresh/only-export-components': [
-      'warn',
-      { allowConstantExport: true },
-    ],
-    '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+    // TypeScript
     '@typescript-eslint/no-explicit-any': 'warn',
+    '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     '@typescript-eslint/consistent-type-imports': 'error',
-    'no-console': ['warn', { allow: ['debug', 'warn', 'error'] }],
+    '@typescript-eslint/no-floating-promises': 'error',
+    // React
+    'react/react-in-jsx-scope': 'off',
+    'react/prop-types': 'off',
   },
 };

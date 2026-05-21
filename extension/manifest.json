@@ -1,56 +1,63 @@
 {
   "manifest_version": 3,
   "name": "SC Analytics Platform",
-  "version": "1.0.0",
-  "description": "AI-powered market intelligence for Sim Companies. Analytics, forecasting, and decision support only. Never automates gameplay.",
+  "version": "0.1.0",
+  "description": "AI-powered market intelligence for Sim Companies. Analytics and decision support only — no automation.",
+
   "permissions": [
     "storage",
-    "notifications",
     "alarms",
-    "activeTab",
-    "scripting",
-    "webRequest"
+    "notifications",
+    "scripting"
   ],
+
   "host_permissions": [
     "https://www.simcompanies.com/*",
-    "https://api.simcotools.com/*",
-    "https://simcotools.app/*"
+    "https://simcotools.app/*",
+    "https://api.simcotools.com/*"
   ],
+
   "background": {
-    "service_worker": "background/service-worker.js",
+    "service_worker": "dist/background/service-worker.js",
     "type": "module"
   },
+
   "content_scripts": [
     {
       "matches": ["https://www.simcompanies.com/*"],
-      "js": [
-        "content/interceptor.js",
-        "content/normalizer.js",
-        "content/scorer.js",
-        "content/overlay-injector.js",
-        "websocket/ws-monitor.js"
-      ],
-      "css": ["assets/overlay.css"],
-      "run_at": "document_idle"
+      "js": ["dist/content/content.js"],
+      "css": ["dist/content/overlay.css"],
+      "run_at": "document_idle",
+      "all_frames": false
     }
   ],
+
   "action": {
-    "default_popup": "popup/popup.html",
+    "default_popup": "dist/popup/index.html",
+    "default_title": "SC Analytics",
     "default_icon": {
-      "16": "assets/icons/icon16.png",
-      "48": "assets/icons/icon48.png",
-      "128": "assets/icons/icon128.png"
+      "16": "assets/icons/icon-16.png",
+      "32": "assets/icons/icon-32.png",
+      "48": "assets/icons/icon-48.png",
+      "128": "assets/icons/icon-128.png"
     }
   },
+
   "icons": {
-    "16": "assets/icons/icon16.png",
-    "48": "assets/icons/icon48.png",
-    "128": "assets/icons/icon128.png"
+    "16": "assets/icons/icon-16.png",
+    "32": "assets/icons/icon-32.png",
+    "48": "assets/icons/icon-48.png",
+    "128": "assets/icons/icon-128.png"
   },
+
   "web_accessible_resources": [
     {
-      "resources": ["popup/*", "overlays/*", "assets/*"],
+      "resources": ["dist/overlay/*.js", "dist/overlay/*.css", "assets/*"],
       "matches": ["https://www.simcompanies.com/*"]
     }
-  ]
+  ],
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
 }
