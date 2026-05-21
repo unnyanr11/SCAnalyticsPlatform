@@ -1,0 +1,12 @@
+/**
+ * SC Analytics Platform — Class Name Utility
+ *
+ * Lightweight clsx-compatible className merger.
+ * Used throughout React components for conditional Tailwind classes.
+ */
+
+type ClassValue = string | number | boolean | null | undefined;
+
+export function cn(...classes: ClassValue[]): string {
+  return classes.filter(Boolean).join(' ');
+}
