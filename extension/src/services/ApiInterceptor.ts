@@ -1,70 +1,228 @@
 /**
- * SC Analytics Platform — API Interceptor
+ * SC Analytics Platform — API Interceptor (v2)
  *
- * Patches window.fetch and XMLHttpRequest in the page context to observe
- * Sim Companies and SimcoTools API responses without automating anything.
+ * Orchestrates the full interception pipeline:
  *
- * Injected via the content script into the main world.
- * ⚠️ Read-only — only observes responses, never modifies requests or initiates
- *   actions on behalf of the user.
+ *   fetch/XHR response
+ *       │
+ *       ├─ EndpointRegistry.shouldIntercept(url)  → skip if not a SC/ST URL
+ *       ├─ RateLimiter.tryConsume(url)            → suppress if over limit
+ *       ├─ isSaneParsedResponse(data)             → discard empty/null bodies
+ *       ├─ ResponseParser.parse(url, data)        → normalise to domain types
+ *       ├─ SchemaValidator                        → validate parsed result
+ *       ├─ InterceptionCache.set*()               → store in two-tier cache
+ *       └─ ApiEventEmitter.emit()                 → notify downstream consumers
+ *
+ * The interceptor itself NEVER:
+ *   • Initiates requests
+ *   • Modifies requests or responses
+ *   • Performs any account actions
+ *   • Automates any gameplay behaviour
+ *
+ * Patching strategy:
+ *   • window.fetch    — cloned response, original returned untouched
+ *   • XMLHttpRequest  — prototype-level `open` + `addEventListener` hooks
+ *
+ * Both patches are fully removable via uninstall().
  */
 
-import { MARKET_URL_PATTERNS } from '../utils/constants';
-import { log } from '../utils/logger';
+import { endpointRegistry }    from './EndpointRegistry';
+import { rateLimiter }         from './RateLimiter';
+import { responseParser }      from './ResponseParser';
+import {
+  validateMarketOffers,
+  validateMarketSnapshot,
+  validateResourceInfoArray,
+  validateEconomyPhase,
+  isSaneParsedResponse,
+} from './SchemaValidator';
+import { interceptionCache }   from './InterceptionCache';
+import { apiEmitter }          from './ApiEventEmitter';
+import { log }                 from '../utils/logger';
 
-type InterceptCallback = (url: string, data: unknown, timestamp: number) => void;
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/** Low-level callback: raw URL + data before any parsing. */
+type RawInterceptCallback = (url: string, data: unknown, timestamp: number) => void;
+
+// ---------------------------------------------------------------------------
+// ApiInterceptor
+// ---------------------------------------------------------------------------
 
 export class ApiInterceptor {
-  private callbacks: InterceptCallback[] = [];
-  private originalFetch: typeof window.fetch;
-  private OriginalXHR: typeof XMLHttpRequest;
+  private originalFetch!: typeof window.fetch;
+  private OriginalXHR!:   typeof XMLHttpRequest;
+  private rawCallbacks:   RawInterceptCallback[] = [];
   private active = false;
 
-  constructor() {
-    this.originalFetch = window.fetch.bind(window);
-    this.OriginalXHR   = window.XMLHttpRequest;
-  }
+  // -------------------------------------------------------------------------
+  // Lifecycle
+  // -------------------------------------------------------------------------
 
-  /** Register a callback to be called with every intercepted market response. */
-  onResponse(cb: InterceptCallback): void {
-    this.callbacks.push(cb);
-  }
-
-  /** Start intercepting fetch and XHR. Call once from content script. */
   install(): void {
     if (this.active) return;
-    this.active = true;
+
+    this.originalFetch = window.fetch.bind(window);
+    this.OriginalXHR   = window.XMLHttpRequest;
+    this.active        = true;
+
     this.patchFetch();
     this.patchXHR();
-    log.info('[Interceptor] Installed on', window.location.hostname);
+
+    log.info('[Interceptor] Installed — monitoring', endpointRegistry.all().length, 'endpoint patterns');
   }
 
-  /** Remove patches and restore originals. */
   uninstall(): void {
     if (!this.active) return;
     window.fetch = this.originalFetch;
-    // XHR restore: simply deregister callbacks—prototype patch is non-destructive
-    this.callbacks = [];
-    this.active = false;
+    // XHR prototype patches are removed by clearing the active flag;
+    // the patched prototype checks `this.active` before processing.
+    this.active       = false;
+    this.rawCallbacks = [];
     log.info('[Interceptor] Uninstalled');
   }
 
+  /** Register a low-level callback for raw (unparsed) intercepts. */
+  onRaw(cb: RawInterceptCallback): () => void {
+    this.rawCallbacks.push(cb);
+    return () => {
+      this.rawCallbacks = this.rawCallbacks.filter((c) => c !== cb);
+    };
+  }
+
   // -------------------------------------------------------------------------
-  // Private: fetch patch
+  // Core pipeline
+  // -------------------------------------------------------------------------
+
+  /**
+   * Called for every intercepted URL + response body.
+   * Runs the full parse → validate → cache → emit pipeline.
+   * Errors in any stage are caught and logged — never re-thrown.
+   */
+  private handleResponse(url: string, data: unknown, timestamp: number): void {
+    try {
+      // Gate 1: is this a monitored endpoint?
+      if (!endpointRegistry.shouldIntercept(url)) return;
+
+      // Gate 2: rate limit check (only applies to actively polled URLs,
+      //         passive intercepts of in-flight game requests are always allowed)
+      const rl = rateLimiter.retryAfterMs(url);
+      if (rl > 0) {
+        apiEmitter.emit('ratelimit:hit', { url, retryAfterMs: rl });
+        log.debug(`[Interceptor] Rate limit hit for ${url}, retry in ${rl}ms`);
+        return;
+      }
+      rateLimiter.tryConsume(url);
+
+      // Gate 3: basic sanity on the response body
+      if (!isSaneParsedResponse(data)) return;
+
+      // Fire raw event before parsing
+      apiEmitter.emit('request:intercepted', { url, data, timestamp });
+      for (const cb of this.rawCallbacks) {
+        try { cb(url, data, timestamp); } catch { /* isolate */ }
+      }
+
+      // Step 1: Parse
+      const parsed = responseParser.parse(url, data, timestamp);
+      if (!parsed) return;
+
+      apiEmitter.emit('response:parsed', parsed);
+
+      // Step 2: Validate + cache + emit domain events
+      switch (parsed.kind) {
+        case 'market_offers': {
+          if (!parsed.offers?.length || !parsed.snapshot) break;
+
+          const offersResult = validateMarketOffers(parsed.offers);
+          const snapResult   = validateMarketSnapshot(parsed.snapshot);
+
+          if (!offersResult.valid || !snapResult.valid) {
+            apiEmitter.emit('response:invalid', {
+              url,
+              errors: [...offersResult.errors, ...snapResult.errors],
+            });
+            log.warn('[Interceptor] Market offers validation failed:', url, offersResult.errors, snapResult.errors);
+            break;
+          }
+
+          void interceptionCache.setSnapshot(parsed.snapshot, url);
+
+          apiEmitter.emit('market:offers', {
+            resourceId: parsed.snapshot.resourceId,
+            realm:      parsed.realm,
+            offers:     parsed.offers,
+            snapshot:   parsed.snapshot,
+            timestamp,
+          });
+          break;
+        }
+
+        case 'encyclopedia':
+        case 'retail_info':
+        case 'simcotools_resources': {
+          if (!parsed.resources?.length) break;
+
+          const result = validateResourceInfoArray(parsed.resources);
+          if (!result.valid) {
+            apiEmitter.emit('response:invalid', { url, errors: result.errors });
+            break;
+          }
+
+          void interceptionCache.setResources(parsed.resources, url);
+
+          apiEmitter.emit('resources:updated', {
+            source:    parsed.kind === 'encyclopedia' ? 'encyclopedia' :
+                       parsed.kind === 'retail_info'  ? 'retail_info'  : 'simcotools',
+            resources: parsed.resources,
+            realm:     parsed.realm,
+            timestamp,
+          });
+          break;
+        }
+
+        case 'simcotools_phase': {
+          if (!parsed.phase) break;
+
+          const result = validateEconomyPhase(parsed.phase);
+          if (!result.valid) {
+            apiEmitter.emit('response:invalid', { url, errors: result.errors });
+            break;
+          }
+
+          void interceptionCache.setPhase(parsed.phase, url);
+
+          apiEmitter.emit('phase:updated', { phase: parsed.phase, timestamp });
+          break;
+        }
+      }
+    } catch (err) {
+      log.error('[Interceptor] Pipeline error for', url, err);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // fetch patch
   // -------------------------------------------------------------------------
 
   private patchFetch(): void {
     const self = this;
 
-    window.fetch = async function (input: RequestInfo | URL, init?: RequestInit) {
+    window.fetch = async function (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> {
       const response = await self.originalFetch(input, init);
-      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString();
+      const url = resolveUrl(input);
 
-      if (self.isMarketUrl(url)) {
+      if (self.active && endpointRegistry.shouldIntercept(url)) {
         const clone = response.clone();
-        void clone.json().then((data: unknown) => {
-          self.emit(url, data, Date.now());
-        }).catch(() => { /* non-JSON response, ignore */ });
+        clone
+          .json()
+          .then((data: unknown) => self.handleResponse(url, data, Date.now()))
+          .catch(() => { /* non-JSON body — skip */ });
       }
 
       return response;
@@ -72,24 +230,19 @@ export class ApiInterceptor {
   }
 
   // -------------------------------------------------------------------------
-  // Private: XHR patch
+  // XHR patch
   // -------------------------------------------------------------------------
 
   private patchXHR(): void {
-    const self = this;
-    const NativeXHR = this.OriginalXHR;
+    const self   = this;
+    const native = this.OriginalXHR;
 
-    // Extend prototype so existing XHR instances are also covered
-    const nativeOpen = NativeXHR.prototype.open as (
-      method: string,
-      url: string | URL,
-      async?: boolean,
-      user?: string,
-      password?: string,
+    const nativeOpen = native.prototype.open as (
+      method: string, url: string | URL, async?: boolean,
     ) => void;
 
-    NativeXHR.prototype.open = function (
-      this: XMLHttpRequest & { _scaUrl?: string },
+    native.prototype.open = function (
+      this: XHRWithMeta,
       method: string,
       url: string | URL,
       ...rest: unknown[]
@@ -99,48 +252,58 @@ export class ApiInterceptor {
       return nativeOpen.apply(this, [method, url, ...rest]);
     };
 
-    const nativeAddEvent = NativeXHR.prototype.addEventListener;
+    const nativeAddEvent = native.prototype.addEventListener;
 
-    NativeXHR.prototype.addEventListener = function (
-      this: XMLHttpRequest & { _scaUrl?: string },
+    native.prototype.addEventListener = function (
+      this: XHRWithMeta,
       type: string,
       listener: EventListenerOrEventListenerObject,
-      ...options: unknown[]
+      ...rest: unknown[]
     ) {
-      if (type === 'load' && this._scaUrl && self.isMarketUrl(this._scaUrl)) {
+      if (
+        type === 'load' &&
+        self.active &&
+        this._scaUrl &&
+        endpointRegistry.shouldIntercept(this._scaUrl)
+      ) {
         const url = this._scaUrl;
-        const wrappedListener = (evt: Event) => {
+        const wrapped = (evt: Event) => {
+          // Call original listener first
           if (typeof listener === 'function') listener(evt);
           else listener.handleEvent(evt);
+
+          // Then extract data
           try {
-            const data: unknown = JSON.parse((evt.target as XMLHttpRequest).responseText);
-            self.emit(url, data, Date.now());
-          } catch {
-            // non-JSON, ignore
-          }
+            const text = (evt.target as XMLHttpRequest).responseText;
+            const data = JSON.parse(text) as unknown;
+            self.handleResponse(url, data, Date.now());
+          } catch { /* non-JSON — skip */ }
         };
         // @ts-expect-error variadic
-        return nativeAddEvent.apply(this, [type, wrappedListener, ...options]);
+        return nativeAddEvent.apply(this, [type, wrapped, ...rest]);
       }
       // @ts-expect-error variadic
-      return nativeAddEvent.apply(this, [type, listener, ...options]);
+      return nativeAddEvent.apply(this, [type, listener, ...rest]);
     };
   }
+}
 
-  // -------------------------------------------------------------------------
-  // Private: helpers
-  // -------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Private types
+// ---------------------------------------------------------------------------
 
-  private isMarketUrl(url: string): boolean {
-    return MARKET_URL_PATTERNS.some((p) => p.test(url));
-  }
+interface XHRWithMeta extends XMLHttpRequest {
+  _scaUrl?: string;
+}
 
-  private emit(url: string, data: unknown, timestamp: number): void {
-    for (const cb of this.callbacks) {
-      try { cb(url, data, timestamp); }
-      catch (err) { log.error('[Interceptor] Callback error:', err); }
-    }
-  }
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function resolveUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string')          return input;
+  if (input instanceof Request)           return input.url;
+  return input.toString();
 }
 
 export const apiInterceptor = new ApiInterceptor();
