@@ -1,0 +1,57 @@
+/**
+ * SC Analytics Platform — Global Styles
+ * Tailwind base + extension-specific design tokens
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --sc-dark:    #0f1117;
+    --sc-surface: #161b22;
+    --sc-border:  #30363d;
+    --sc-text:    #e6edf3;
+    --sc-muted:   #8b949e;
+    --sc-faint:   #484f58;
+    --sc-accent:  #58a6ff;
+    --sc-green:   #3fb950;
+    --sc-red:     #f85149;
+    --sc-yellow:  #d29922;
+    --sc-orange:  #e3b341;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background-color: var(--sc-dark);
+    color: var(--sc-text);
+    -webkit-font-smoothing: antialiased;
+    min-width: 380px;
+    min-height: 500px;
+  }
+}
+
+@layer components {
+  .badge-bullish {
+    @apply inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-green-900/30 text-green-400 border border-green-800/40;
+  }
+
+  .badge-bearish {
+    @apply inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-red-900/30 text-red-400 border border-red-800/40;
+  }
+
+  .badge-warning {
+    @apply inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-yellow-900/30 text-yellow-400 border border-yellow-800/40;
+  }
+
+  .card-analytics {
+    @apply rounded-lg border border-sc-border bg-sc-surface p-4;
+  }
+}

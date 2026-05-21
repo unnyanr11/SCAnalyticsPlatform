@@ -1,1 +1,1 @@
-"""Core infrastructure: config, database, redis."""
+# SC Analytics Platform — Core Package

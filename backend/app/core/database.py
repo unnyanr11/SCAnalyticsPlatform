@@ -1,57 +1,40 @@
 """
-app/core/database.py
-Async SQLAlchemy 2.0 engine and session management.
+SC Analytics Platform — Database Connection
+
+Async SQLAlchemy session management for PostgreSQL.
 """
 
-from sqlalchemy.ext.asyncio import (
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
+from __future__ import annotations
+
+from typing import AsyncGenerator
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
-from app.core.config import settings
-
-# ---------------------------------------------------------------------------
-# Engine
-# ---------------------------------------------------------------------------
+from app.core.settings import settings
 
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=settings.APP_DEBUG,
+    echo=settings.DEBUG,
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,
 )
 
-# ---------------------------------------------------------------------------
-# Session factory
-# ---------------------------------------------------------------------------
-
 AsyncSessionLocal = async_sessionmaker(
-    bind=engine,
+    engine,
     class_=AsyncSession,
     expire_on_commit=False,
-    autoflush=False,
-    autocommit=False,
 )
-
-# ---------------------------------------------------------------------------
-# Declarative base for all ORM models
-# ---------------------------------------------------------------------------
 
 
 class Base(DeclarativeBase):
+    """Declarative base for all SQLAlchemy models."""
     pass
 
 
-# ---------------------------------------------------------------------------
-# FastAPI dependency
-# ---------------------------------------------------------------------------
-
-
-async def get_db() -> AsyncSession:  # type: ignore[misc]
-    """Yields an async DB session and closes it on exit."""
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """FastAPI dependency that provides a database session."""
     async with AsyncSessionLocal() as session:
         try:
             yield session
@@ -59,3 +42,5 @@ async def get_db() -> AsyncSession:  # type: ignore[misc]
         except Exception:
             await session.rollback()
             raise
+        finally:
+            await session.close()
